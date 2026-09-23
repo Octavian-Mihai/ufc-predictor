@@ -1,0 +1,12 @@
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+joblib>=1.4
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.2
+python-dotenv>=1.0
+rapidfuzz>=3.9
+streamlit>=1.38
+pyarrow>=16.0
+python-dateutil>=2.9

@@ -1,0 +1,74 @@
+[
+  {
+    "id": "dummy-sample-1",
+    "sport_key": "mma_mixed_martial_arts",
+    "sport_title": "MMA",
+    "commence_time": "2026-09-20T00:00:00Z",
+    "home_team": "Islam Makhachev",
+    "away_team": "Arman Tsarukyan",
+    "bookmakers": [
+      {
+        "key": "dummy_book",
+        "title": "Dummy (no API key)",
+        "last_update": "2026-09-16T12:00:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "outcomes": [
+              { "name": "Islam Makhachev", "price": 1.40 },
+              { "name": "Arman Tsarukyan", "price": 3.00 }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "dummy-sample-2",
+    "sport_key": "mma_mixed_martial_arts",
+    "sport_title": "MMA",
+    "commence_time": "2026-09-20T00:00:00Z",
+    "home_team": "Zhang Weili",
+    "away_team": "Valentina Shevchenko",
+    "bookmakers": [
+      {
+        "key": "dummy_book",
+        "title": "Dummy (no API key)",
+        "last_update": "2026-09-16T12:00:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "outcomes": [
+              { "name": "Weili Zhang", "price": 1.71 },
+              { "name": "Valentina Shevchenko", "price": 2.20 }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "dummy-sample-3",
+    "sport_key": "mma_mixed_martial_arts",
+    "sport_title": "MMA",
+    "commence_time": "2026-09-20T00:00:00Z",
+    "home_team": "Sean O'Malley",
+    "away_team": "Merab Dvalishvili",
+    "bookmakers": [
+      {
+        "key": "dummy_book",
+        "title": "Dummy (no API key)",
+        "last_update": "2026-09-16T12:00:00Z",
+        "markets": [
+          {
+            "key": "h2h",
+            "outcomes": [
+              { "name": "Sean O'Malley", "price": 2.80 },
+              { "name": "Merab Dvalishvili", "price": 1.45 }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
