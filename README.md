@@ -1,5 +1,7 @@
 # Local UFC Fight Predictor
 
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for an architecture diagram.
+
 Fully local Python app: official [UFC Stats](http://ufcstats.com/) career features, a calibrated scikit-learn **stacked ensemble** win model, optional free [The Odds API](https://the-odds-api.com/) moneylines, and a Streamlit dashboard that ranks **value underdogs**.
 
 No OpenAI, no cloud GPU, no paid hosting. The only optional account is a **free** Odds API key (500 credits/month). One cached `regions=us&markets=h2h` pull costs **1 credit**.
