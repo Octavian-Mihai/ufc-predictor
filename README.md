@@ -103,6 +103,16 @@ Holdout protocol: train through 2022, calibrate on 2023, evaluate 2024–now (ac
 - **Does adding the line as a feature help?** (`python -m src.model.market_model`; 3,198 fights, 2019–2026, walk-forward) No. Log loss: line 0.6036, line-recalibrated 0.6022, line + stats blend 0.6017, full ensemble with the line as a feature 0.6029, stats only 0.6487. Blend and line-aware model are within noise of the line (blend −0.0018 [−0.0038, +0.0003]); the learned blend gives the stats only ~3–15% of the weight it gives the line. The line-aware value rule returned +3.2% ROI [−8.1%, +14.8%] on 538 bets, i.e. indistinguishable from zero. The live model therefore stays stats-only.
 - **Prediction ledger** (`python -m src.ledger`): each upcoming bout is logged to `data/ledger/predictions.jsonl` with its probability and odds *before* the event, frozen once the event day starts, and graded when results arrive. It is committed to git, so it is a verifiable out-of-sample track record. The in-app "Last 5 events" recap, by contrast, is in-sample.
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest -m "not realdata"   # fast, synthetic data
+pytest                      # also runs leakage checks on the real UFC Stats history
+```
+
+The suite targets the places where a leak would silently inflate results: Elo and career features use only earlier fights (including a truncation test on the real data), corner-mirroring is exactly antisymmetric, the stacker's meta-learner sees only out-of-fold rows, and the prediction ledger freezes at event day. CI (`.github/workflows/tests.yml`) runs them on every push.
+
 ## Layout
 
 ```
