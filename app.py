@@ -12,7 +12,7 @@ import streamlit as st
 
 from src.ingest.odds import flatten_h2h, get_odds, match_fight_odds
 from src.model.predict import load_bundle, load_card, load_latest, predict_fight
-from src.paths import METRICS_PATH
+from src.paths import FIGHT_LEVEL_PATH, FIGHTER_LATEST_PATH, METRICS_PATH, MODEL_PATH, UPCOMING_PATH
 from src.review.recent import grade_last_events, recap_to_records, rethreshold_recap
 from src.value.ev import american_to_decimal, annotate_model, coerce_decimal, is_underdog, pair_market
 
@@ -111,8 +111,14 @@ def _num(stats: dict, key: str):
         return None
 
 
+def _data_stamp() -> tuple:
+    """File mtimes, so cached results rebuild after a refresh or retrain."""
+    paths = (UPCOMING_PATH, FIGHTER_LATEST_PATH, FIGHT_LEVEL_PATH, MODEL_PATH, METRICS_PATH)
+    return tuple(p.stat().st_mtime if p.exists() else 0.0 for p in paths)
+
+
 @st.cache_data(show_spinner=False)
-def _load_metrics() -> dict:
+def _load_metrics(stamp: tuple) -> dict:
     if METRICS_PATH.exists():
         return json.loads(METRICS_PATH.read_text())
     bundle = load_bundle()
@@ -125,16 +131,16 @@ def _odds_payload() -> dict:
 
 
 @st.cache_resource(show_spinner=False)
-def _bundle_and_latest():
+def _bundle_and_latest(stamp: tuple):
     return load_bundle(), load_latest()
 
 
-@st.cache_data(show_spinner=True)
-def _scored_card() -> pd.DataFrame:
+@st.cache_data(ttl=300, show_spinner=True)
+def _scored_card(stamp: tuple) -> pd.DataFrame:
     card = load_card()
     if card.empty:
         return pd.DataFrame()
-    bundle, latest = _bundle_and_latest()
+    bundle, latest = _bundle_and_latest(stamp)
     odds = _odds_payload()
     flat = flatten_h2h(odds["events"])
     sample = bool(card["sample_card"].iloc[0]) if "sample_card" in card.columns else False
@@ -178,7 +184,7 @@ def _scored_card() -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=True)
-def _last5_recap() -> dict:
+def _last5_recap(stamp: tuple) -> dict:
     return recap_to_records(grade_last_events(n=5, threshold=0.0))
 
 
@@ -228,7 +234,7 @@ def main() -> None:
         unsafe_allow_html=True,
     )
     st.title("Local UFC fight predictor")
-    st.caption("Official UFC Stats career features · sklearn GBDT · optional free The Odds API")
+    st.caption("Official UFC Stats career features · stacked ML ensemble · optional free The Odds API")
     st.info(DISCLAIMER)
 
     with st.sidebar:
@@ -238,10 +244,11 @@ def main() -> None:
         st.caption("Flag moneyline underdogs whose model EV is above this line. Default 5%.")
         if st.button("Refresh odds cache view"):
             _odds_payload.clear()
+            _scored_card.clear()
             st.rerun()
         st.divider()
         try:
-            meta = _load_metrics()
+            meta = _load_metrics(_data_stamp())
             m = meta.get("metrics") or {}
             split = meta.get("split") or {}
             st.subheader("Holdout metrics")
@@ -278,7 +285,7 @@ def main() -> None:
             )
 
     try:
-        scored = apply_threshold(_scored_card(), threshold)
+        scored = apply_threshold(_scored_card(_data_stamp()), threshold)
     except FileNotFoundError as exc:
         st.error(str(exc))
         st.stop()
@@ -295,6 +302,10 @@ def render_upcoming_card(scored: pd.DataFrame) -> None:
         st.warning("No card loaded. Run `python -m src.ingest.ufcstats --bootstrap` then `--upcoming`.")
         return
 
+    if "DATE" in scored.columns:
+        scored = scored.assign(_when=pd.to_datetime(scored["DATE"], errors="coerce")).sort_values(
+            "_when", kind="stable"
+        )
     event_names = list(scored["EVENT"].dropna().unique())
     event_name = st.selectbox("Card", event_names)
     scored = scored.loc[scored["EVENT"] == event_name].reset_index(drop=True)
@@ -442,7 +453,7 @@ def render_last5(threshold: float) -> None:
         "NC / draws / insufficient data are listed but excluded from accuracy."
     )
     try:
-        recap = rethreshold_recap(_last5_recap(), threshold)
+        recap = rethreshold_recap(_last5_recap(_data_stamp()), threshold)
     except FileNotFoundError as exc:
         st.error(str(exc))
         return
