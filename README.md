@@ -95,7 +95,12 @@ Holdout protocol: train through 2022, calibrate on 2023, evaluate 2024–now (ac
 - **Stacked ensemble**: HistGradientBoosting, logistic regression, extra trees and a small MLP, blended by a logistic meta-learner trained only on time-ordered out-of-fold predictions.
 - **Platt calibration** on 2023, then a per-model comparison and permutation feature importance on the 2024+ holdout (saved to `models/metrics.json`, shown in the dashboard sidebar).
 
-Holdout (1,413 fights): ensemble ≈ 64.6% accuracy / 0.634 log loss, vs 61.7% / 0.666 for the previous single gradient-boosting model.
+### How well does it actually work?
+
+- **Single holdout (2024+):** ≈ 64.5% accuracy / 0.636 log loss. That window turned out to be favourable.
+- **Walk-forward 2017–2026** (`python -m src.model.backtest`, 4,787 fights, every prediction out-of-sample): **62.3% [60.9, 63.6]** accuracy, 0.653 log loss, versus 56.7% for always picking the red corner. The ensemble beats each simpler model on log loss with bootstrap CIs that exclude zero, but by small margins (0.004–0.011).
+- **Versus the market:** not measured yet. The free Odds API has no historical lines. `python -m src.model.market` compares the model with de-vigged closing odds (and a flat-stake ROI of the value rule, with CIs) once `data/external/odds_history.csv` (`date, fighter_a, fighter_b, a_decimal, b_decimal`) exists. Until then the value-underdog flags are **unproven**.
+- **Prediction ledger** (`python -m src.ledger`): each upcoming bout is logged to `data/ledger/predictions.jsonl` with its probability and odds *before* the event, frozen once the event day starts, and graded when results arrive. It is committed to git, so it is a verifiable out-of-sample track record. The in-app "Last 5 events" recap, by contrast, is in-sample.
 
 ## Layout
 

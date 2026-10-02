@@ -30,10 +30,13 @@ jobs:
           python -m src.ingest.ufcstats --bootstrap
           python -m src.ingest.refresh
           python -m src.model.train
+          python -m src.model.backtest
+          if [ -f data/external/odds_history.csv ]; then python -m src.model.market; fi
+          python -m src.ledger
           python -m src.export.site
-      - name: Commit updated data.json
+      - name: Commit updated data.json and ledger
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add site/data.json
-          git diff --cached --quiet || (git commit -m "chore: refresh site data" && git push)
+          git add site/data.json data/ledger
+          git diff --cached --quiet || (git commit -m "chore: refresh site data and prediction ledger" && git push)

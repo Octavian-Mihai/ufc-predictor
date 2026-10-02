@@ -12,6 +12,9 @@ import pandas as pd
 
 from src.features.build import CAREER_COLS
 from src.ingest.odds import get_odds
+from src.ledger import summarize_ledger
+from src.model.backtest import BACKTEST_PATH
+from src.model.market import MARKET_PATH
 from src.paths import METRICS_PATH, ROOT
 from src.review.recent import grade_last_events, recap_to_records
 from src.value.card import score_card
@@ -49,8 +52,14 @@ def _pick(rec: dict, keys: list[str]) -> dict:
     return {k: _clean(rec.get(k)) for k in keys}
 
 
+def _load(path) -> dict | None:
+    return json.loads(path.read_text()) if path.exists() else None
+
+
 def build_payload() -> dict:
     odds = get_odds()
+    if str(odds["source"]).startswith("dummy"):
+        raise RuntimeError("Refusing to export synthetic odds; set ODDS_API_KEY or fix the odds fetch.")
     scored = score_card(odds)
     bouts = []
     for rec in scored.to_dict("records"):
@@ -75,6 +84,9 @@ def build_payload() -> dict:
         "odds_source": odds["source"],
         "odds_remaining": odds.get("remaining"),
         "model": {k: meta.get(k) for k in ("metrics", "comparison", "importance", "split", "trained_at")},
+        "backtest": _load(BACKTEST_PATH),
+        "market": _load(MARKET_PATH),
+        "ledger": summarize_ledger(),
         "bouts": bouts,
         "recap": events,
     }

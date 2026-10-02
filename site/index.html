@@ -60,6 +60,7 @@ footer{margin-top:40px;color:var(--mute);font-size:.82rem}
   <div class="tabs" role="tablist">
     <button role="tab" aria-selected="true" data-tab="upcoming">Upcoming card</button>
     <button role="tab" aria-selected="false" data-tab="recap">Last 5 events</button>
+    <button role="tab" aria-selected="false" data-tab="track">Track record</button>
     <button role="tab" aria-selected="false" data-tab="model">Model</button>
   </div>
 
@@ -79,6 +80,7 @@ footer{margin-top:40px;color:var(--mute);font-size:.82rem}
   </section>
 
   <section id="recap" class="hidden"></section>
+  <section id="track" class="hidden"></section>
   <section id="model" class="hidden"></section>
 
   <footer>Refreshed by a scheduled job; see <code>site/data.json</code> for the raw numbers. Odds are the median across US books and may move before the fight.</footer>
@@ -205,7 +207,7 @@ function renderRecap() {
     return `<h2>${esc(e.event)}</h2><p class="sub">${esc(e.date)} · ${esc(e.location)}</p>
       <div class="tablewrap"><table><thead><tr><th>Bout</th><th>Model pick</th><th>Winner</th><th>Result</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }).join("");
-  $("#recap").innerHTML = `<div class="note">Heads up: the live model is trained on all past fights, including these, so this recap is an in-sample sanity check, not a forecast. Honest out-of-sample numbers are on the Model tab.</div>
+  $("#recap").innerHTML = `<div class="note">Heads up: the live model is trained on all past fights, including these, so this recap is an in-sample sanity check, not a forecast. Genuinely out-of-sample numbers are on the Track record and Model tabs.</div>
     <div class="kpis"><div class="card kpi"><span>Graded picks</span><b>${graded}</b></div>
     <div class="card kpi"><span>Winner accuracy</span><b>${graded ? pct(correct / graded) : "—"}</b></div>
     <div class="card kpi"><span>Value flags</span><b>${flags}</b></div>
@@ -222,18 +224,69 @@ function renderModel() {
     <div class="card kpi"><span>Brier</span><b>${num(h.brier, 3)}</b></div>
     <div class="card kpi"><span>Holdout fights</span><b>${(h.n ?? 0).toLocaleString()}</b></div></div>
     <p class="mute">Trained through ${esc(split.fit_through)}, calibrated on ${esc(split.calib_through)}, scored on fights from ${esc(split.holdout_from)}.</p>
-    <h2>Model comparison (holdout)</h2>
+    <h2>Latest holdout (single split, 2024 onward)</h2>
     <div class="tablewrap"><table><thead><tr><th>Model</th><th>Accuracy</th><th>Log loss</th><th>Brier</th></tr></thead><tbody>
     ${Object.entries(cmp).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${pct(v.accuracy)}</td><td>${num(v.log_loss, 3)}</td><td>${num(v.brier, 3)}</td></tr>`).join("")}</tbody></table></div>
     <p class="mute">Ensemble = stacked gradient boosting + logistic regression + extra trees + neural net, trained on corner-swapped data and Platt-calibrated. Lower log loss / Brier is better; a coin flip scores 0.693 / 0.250.</p>
     <h2>Top features (permutation importance)</h2>
-    <div class="card">${Object.entries(imp).map(([k, v]) => `<div class="stat"><div class="v" style="text-align:right">${esc(k)}</div><div class="bar"><i style="width:${(v / maxImp) * 100}%;background:var(--bar)"></i></div><div class="v">${num(v, 4)}</div></div>`).join("")}</div>`;
+    <div class="card">${Object.entries(imp).map(([k, v]) => `<div class="stat"><div class="v" style="text-align:right">${esc(k)}</div><div class="bar"><i style="width:${(v / maxImp) * 100}%;background:var(--bar)"></i></div><div class="v">${num(v, 4)}</div></div>`).join("")}</div>
+    ${renderMarket()}${renderBacktest()}`;
+}
+
+const ci = (c, f = (x) => pct(x)) => (c ? `${f(c.mean)} <span class="mute">[${f(c.lo)}, ${f(c.hi)}]</span>` : "—");
+const sgn = (x, d = 4) => (x >= 0 ? "+" : "") + x.toFixed(d);
+
+function renderTrack() {
+  const L = DATA.ledger || {};
+  const kp = (l, v) => `<div class="card kpi"><span>${l}</span><b>${v}</b></div>`;
+  let html = `<div class="note">Every prediction on the Upcoming tab is logged to a public, append-only ledger (<code>data/ledger/predictions.jsonl</code>) <b>before</b> the event starts, then graded once results are in. This is the only fully honest scorecard: no backfilling, no retraining on the answers.</div>
+    <div class="kpis">${kp("Predictions logged", L.n_logged ?? 0)}${kp("Graded", L.n_graded ?? 0)}${kp("Pending", L.n_pending ?? 0)}${kp("Logging since", L.first_logged ? esc(L.first_logged.slice(0, 10)) : "—")}</div>`;
+  if (!L.n_graded) {
+    html += `<p class="mute" style="margin-top:14px">No fights graded yet. Results appear here after the first logged event takes place.</p>`;
+  } else {
+    html += `<h2>Results so far</h2><div class="kpis">${kp("Accuracy (95% CI)", ci(L.model.accuracy))}${kp("Log loss (95% CI)", ci(L.model.log_loss, (x) => x.toFixed(3)))}</div>`;
+    if (L.vs_market) html += `<p>Model vs market on ${L.vs_market.n} fights with odds: log loss ${L.vs_market.model_log_loss.toFixed(3)} vs ${L.vs_market.market_log_loss.toFixed(3)} (difference ${sgn(L.vs_market.diff.mean)} [${sgn(L.vs_market.diff.lo)}, ${sgn(L.vs_market.diff.hi)}]; negative favours the model).</p>`;
+    const v = L.value_rule;
+    if (v && v.n) html += `<p>Value rule (underdog, EV ≥ ${Math.round(v.threshold * 100)}%): ${v.n} bets, ROI ${ci(v, (x) => (x * 100).toFixed(1) + "%")} per unit. ${v.n < 100 ? "<b>Too few bets to conclude anything.</b>" : ""}</p>`;
+  }
+  $("#track").innerHTML = html;
+}
+
+function renderBacktest() {
+  const B = DATA.backtest;
+  if (!B) return "";
+  const names = {ensemble: "Ensemble", hgb: "Gradient boosting", logreg: "Logistic regression", extra_trees: "Extra trees", mlp: "Neural net", elo_only: "Elo only"};
+  const rows = Object.entries(B.pooled).map(([k, v]) => `<tr><td>${names[k] || k}</td><td>${ci(v.accuracy)}</td><td>${ci(v.log_loss, (x) => x.toFixed(3))}</td></tr>`).join("");
+  const vs = Object.entries(B.ensemble_vs).map(([k, v]) => `<tr><td>vs ${names[k] || k}</td><td>${sgn(v.log_loss.mean)} <span class="mute">[${sgn(v.log_loss.lo)}, ${sgn(v.log_loss.hi)}]</span></td><td>${v.log_loss.significant ? "yes" : "no"}</td></tr>`).join("");
+  const yrs = B.by_year.map((y) => `<tr><td>${y.year}</td><td>${y.n}</td><td>${pct(y.ensemble_acc)}</td><td>${y.ensemble_ll.toFixed(3)}</td><td>${pct(y.logreg_acc)}</td></tr>`).join("");
+  const cal = B.calibration.map((c) => `<div class="stat"><div class="v" style="text-align:right">${c.bin} (n=${c.n})</div><div><div class="bar"><i style="width:${c.mean_pred * 100}%;background:var(--bar2)"></i></div><div class="bar" style="margin-top:3px"><i style="width:${c.observed * 100}%;background:var(--bar)"></i></div></div><div class="v">${pct(c.mean_pred, 0)} → ${pct(c.observed, 0)}</div></div>`).join("");
+  return `<h2>Walk-forward backtest ${B.years[0]}–${B.years[1]}</h2>
+    <p class="mute">${B.n.toLocaleString()} fights. For each year the model trains only on earlier fights, calibrates on the year before, and predicts that year. Intervals are 95% bootstrap CIs (individual models are shown uncalibrated; the ensemble is Platt-calibrated). "Coin flip" accuracy equals always picking the red corner (${pct(B.base_rate_red)}).</p>
+    <div class="tablewrap"><table><thead><tr><th>Model</th><th>Accuracy</th><th>Log loss</th></tr></thead><tbody>${rows}
+      <tr><td>Always red corner</td><td>${ci(B.coin_flip.accuracy)}</td><td>${ci(B.coin_flip.log_loss, (x) => x.toFixed(3))}</td></tr></tbody></table></div>
+    <h2>Is the ensemble really better?</h2>
+    <div class="tablewrap"><table><thead><tr><th>Log loss difference</th><th>Ensemble − other</th><th>CI excludes 0</th></tr></thead><tbody>${vs}</tbody></table></div>
+    <p class="mute">Negative = ensemble better. The gains over simpler models are real but small; the single 2024+ holdout above flatters the model compared with the long-run average.</p>
+    <h2>By year</h2>
+    <div class="tablewrap"><table><thead><tr><th>Year</th><th>Fights</th><th>Ensemble acc</th><th>Ensemble log loss</th><th>Logistic acc</th></tr></thead><tbody>${yrs}</tbody></table></div>
+    <h2>Calibration</h2><p class="mute">Blue = average predicted P(red wins), red = observed rate. They should match.</p><div class="card">${cal}</div>`;
+}
+
+function renderMarket() {
+  const M = DATA.market;
+  if (!M) return `<h2>Versus the betting market</h2><div class="note">Not yet measured: the free Odds API has no historical lines, so there is no closing-line benchmark loaded. Until there is, treat the “value underdog” flags as unproven. The Track record tab accumulates real pre-fight odds going forward.</div>`;
+  const d = M.ensemble_vs_market.log_loss, v = M.value_rule;
+  return `<h2>Versus the betting market</h2>
+    <p class="mute">${M.matched.toLocaleString()} fights with historical odds (${esc(M.date_range[0])} → ${esc(M.date_range[1])}), out-of-sample model predictions.</p>
+    <div class="tablewrap"><table><thead><tr><th></th><th>Accuracy</th><th>Log loss</th></tr></thead><tbody>
+    ${["ensemble", "market", "blend"].map((k) => `<tr><td>${k === "market" ? "Market (de-vigged)" : k === "blend" ? "50/50 blend" : "Model"}</td><td>${ci(M.pooled[k].accuracy)}</td><td>${ci(M.pooled[k].log_loss, (x) => x.toFixed(3))}</td></tr>`).join("")}</tbody></table></div>
+    <p>Model − market log loss: ${sgn(d.mean)} [${sgn(d.lo)}, ${sgn(d.hi)}] (negative favours the model). Value rule: ${v.n} bets, ROI ${ci(v, (x) => (x * 100).toFixed(1) + "%")} per unit staked.</p>`;
 }
 
 function showTab(name) {
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === name));
-  ["upcoming", "recap", "model"].forEach((id) => $("#" + id).classList.toggle("hidden", id !== name));
-  $(".row:has(#thr)").classList.toggle("hidden", name === "model");
+  ["upcoming", "recap", "track", "model"].forEach((id) => $("#" + id).classList.toggle("hidden", id !== name));
+  $(".row:has(#thr)").classList.toggle("hidden", name === "model" || name === "track");
 }
 
 function rerender() { renderUpcoming(); renderRecap(); }
@@ -246,7 +299,7 @@ fetch("data.json", {cache: "no-cache"}).then((r) => r.json()).then((d) => {
   $("#eventSel").onchange = () => { selBout = 0; renderUpcoming(); };
   $("#thr").oninput = (e) => { thr = e.target.value / 100; $("#thrVal").textContent = e.target.value + "%"; rerender(); };
   document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
-  renderModel(); rerender();
+  renderModel(); renderTrack(); rerender();
 }).catch((e) => { $("#upcoming").innerHTML = `<p class="neg">Could not load data.json (${esc(e.message)}).</p>`; });
 </script>
 </body>

@@ -23,4 +23,7 @@ data/cache/odds_snapshots/
 
 models/*.joblib
 models/metrics.json
+models/backtest.json
+models/market_comparison.json
+models/hgb_params.json
 !models/.gitkeep
