@@ -1,5 +1,7 @@
 # Local UFC Fight Predictor
 
+**Live site: [ufc-predictor-eight.vercel.app](https://ufc-predictor-eight.vercel.app/)**
+
 Fully local Python app: official [UFC Stats](http://ufcstats.com/) career features, a calibrated scikit-learn **stacked ensemble** win model (a reasonable stats model, but *not* better than the betting market — see below), optional free [The Odds API](https://the-odds-api.com/) moneylines, and a Streamlit dashboard that ranks **value underdogs**.
 
 No OpenAI, no cloud GPU, no paid hosting. The only optional account is a **free** Odds API key (500 credits/month). One cached `regions=us&markets=h2h` pull costs **1 credit**.
