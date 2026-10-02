@@ -1,6 +1,6 @@
 # Local UFC Fight Predictor
 
-Fully local Python app: official [UFC Stats](http://ufcstats.com/) career features, a calibrated scikit-learn **stacked ensemble** win model, optional free [The Odds API](https://the-odds-api.com/) moneylines, and a Streamlit dashboard that ranks **value underdogs**.
+Fully local Python app: official [UFC Stats](http://ufcstats.com/) career features, a calibrated scikit-learn **stacked ensemble** win model (a reasonable stats model, but *not* better than the betting market — see below), optional free [The Odds API](https://the-odds-api.com/) moneylines, and a Streamlit dashboard that ranks **value underdogs**.
 
 No OpenAI, no cloud GPU, no paid hosting. The only optional account is a **free** Odds API key (500 credits/month). One cached `regions=us&markets=h2h` pull costs **1 credit**.
 
@@ -99,7 +99,7 @@ Holdout protocol: train through 2022, calibrate on 2023, evaluate 2024–now (ac
 
 - **Single holdout (2024+):** ≈ 64.5% accuracy / 0.636 log loss. That window turned out to be favourable.
 - **Walk-forward 2017–2026** (`python -m src.model.backtest`, 4,787 fights, every prediction out-of-sample): **62.3% [60.9, 63.6]** accuracy, 0.653 log loss, versus 56.7% for always picking the red corner. The ensemble beats each simpler model on log loss with bootstrap CIs that exclude zero, but by small margins (0.004–0.011).
-- **Versus the market:** not measured yet. The free Odds API has no historical lines. `python -m src.model.market` compares the model with de-vigged closing odds (and a flat-stake ROI of the value rule, with CIs) once `data/external/odds_history.csv` (`date, fighter_a, fighter_b, a_decimal, b_decimal`) exists. Until then the value-underdog flags are **unproven**.
+- **Versus the market** (`python -m src.ingest.odds_history && python -m src.model.market`; 4,040 walk-forward fights 2017–2026 with pre-fight moneylines): the de-vigged market wins clearly — **67.2% accuracy / 0.604 log loss vs the model's 62.5% / 0.652** (difference +0.048 [+0.039, +0.056]). A 50/50 blend (0.617) is also worse than the market alone. Betting the "value underdog" rule (EV ≥ 5%) at those prices would have returned **−13.3% ROI [−18.7%, −8.1%]** over 2,571 bets. In other words, the model has no demonstrated edge over the line, and the value flags should be read as "where the model disagrees with the market", not as bets. Historical odds: [ultimate_ufc_dataset](https://github.com/shortlikeafox/ultimate_ufc_dataset) (Apache-2.0).
 - **Prediction ledger** (`python -m src.ledger`): each upcoming bout is logged to `data/ledger/predictions.jsonl` with its probability and odds *before* the event, frozen once the event day starts, and graded when results arrive. It is committed to git, so it is a verifiable out-of-sample track record. The in-app "Last 5 events" recap, by contrast, is in-sample.
 
 ## Layout

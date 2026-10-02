@@ -309,6 +309,7 @@ def render_upcoming_card(scored: pd.DataFrame) -> None:
 
     values = scored.loc[scored["value_flag"]]
     st.markdown("### Value underdogs")
+    st.caption("Backtested against historical closing lines, this rule lost money (about -13% ROI). Treat flags as model-vs-market disagreement, not bets. See README.")
     if values.empty:
         st.write("No underdogs currently clear the EV slider. Lower the threshold or wait for a live card.")
     else:

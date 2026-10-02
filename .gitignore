@@ -27,3 +27,4 @@ models/backtest.json
 models/market_comparison.json
 models/hgb_params.json
 !models/.gitkeep
+data/external/
