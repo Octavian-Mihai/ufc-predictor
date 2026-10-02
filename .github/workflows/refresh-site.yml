@@ -33,6 +33,7 @@ jobs:
           python -m src.model.backtest
           python -m src.ingest.odds_history
           python -m src.model.market
+          python -m src.model.market_model
           python -m src.ledger
           python -m src.export.site
       - name: Commit updated data.json and ledger

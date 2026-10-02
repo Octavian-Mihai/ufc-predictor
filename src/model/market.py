@@ -28,7 +28,9 @@ def _key(name: str) -> str:
     return " ".join(text.replace(".", " ").replace("'", "").replace("-", " ").split())
 
 
-def attach_market(preds: pd.DataFrame, odds: pd.DataFrame, max_days: int = 3) -> pd.DataFrame:
+def attach_market(
+    preds: pd.DataFrame, odds: pd.DataFrame, max_days: int = 3, keep_unmatched: bool = False
+) -> pd.DataFrame:
     """Join odds onto predictions by unordered fighter pair and nearby date; orient to red/blue."""
     odds = odds.assign(date=pd.to_datetime(odds["date"], errors="coerce")).dropna(subset=["date", "a_decimal", "b_decimal"])
     index: dict[frozenset, list[tuple]] = {}
@@ -48,7 +50,8 @@ def attach_market(preds: pd.DataFrame, odds: pd.DataFrame, max_days: int = 3) ->
         rows.append((d1, d2) if first == red else (d2, d1))
     out = preds.copy()
     out[["red_decimal", "blue_decimal"]] = pd.DataFrame(rows, index=preds.index)
-    out = out.dropna(subset=["red_decimal", "blue_decimal"]).copy()
+    if not keep_unmatched:
+        out = out.dropna(subset=["red_decimal", "blue_decimal"]).copy()
     imp_r, imp_b = 1 / out["red_decimal"], 1 / out["blue_decimal"]
     out["market"] = imp_r / (imp_r + imp_b)  # multiplicative de-vig
     return out

@@ -25,6 +25,7 @@ models/*.joblib
 models/metrics.json
 models/backtest.json
 models/market_comparison.json
+models/market_model.json
 models/hgb_params.json
 !models/.gitkeep
 data/external/

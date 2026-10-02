@@ -230,7 +230,7 @@ function renderModel() {
     <p class="mute">Ensemble = stacked gradient boosting + logistic regression + extra trees + neural net, trained on corner-swapped data and Platt-calibrated. Lower log loss / Brier is better; a coin flip scores 0.693 / 0.250.</p>
     <h2>Top features (permutation importance)</h2>
     <div class="card">${Object.entries(imp).map(([k, v]) => `<div class="stat"><div class="v" style="text-align:right">${esc(k)}</div><div class="bar"><i style="width:${(v / maxImp) * 100}%;background:var(--bar)"></i></div><div class="v">${num(v, 4)}</div></div>`).join("")}</div>
-    ${renderMarket()}${renderBacktest()}`;
+    ${renderMarket()}${renderMarketModel()}${renderBacktest()}`;
 }
 
 const ci = (c, f = (x) => pct(x)) => (c ? `${f(c.mean)} <span class="mute">[${f(c.lo)}, ${f(c.hi)}]</span>` : "—");
@@ -270,6 +270,20 @@ function renderBacktest() {
     <h2>By year</h2>
     <div class="tablewrap"><table><thead><tr><th>Year</th><th>Fights</th><th>Ensemble acc</th><th>Ensemble log loss</th><th>Logistic acc</th></tr></thead><tbody>${yrs}</tbody></table></div>
     <h2>Calibration</h2><p class="mute">Blue = average predicted P(red wins), red = observed rate. They should match.</p><div class="card">${cal}</div>`;
+}
+
+function renderMarketModel() {
+  const M = DATA.market_model;
+  if (!M) return "";
+  const names = {market: "Closing line (de-vigged)", market_recal: "Line, recalibrated", stats: "Stats model only", blend: "Line + stats blend", market_aware: "Full model with line as a feature"};
+  const rows = Object.entries(M.pooled).map(([k, v]) => {
+    const d = M.vs_market[k];
+    return `<tr><td>${names[k]}</td><td>${ci(v.accuracy)}</td><td>${ci(v.log_loss, (x) => x.toFixed(4))}</td><td>${d ? sgn(d.mean) + (d.significant ? " *" : "") : "—"}</td></tr>`;
+  }).join("");
+  return `<h2>Does adding the line to the model help?</h2>
+    <p class="mute">Walk-forward ${M.years[0]}–${M.years[1]}, ${M.n.toLocaleString()} fights with a line. Last column: log loss minus the raw line (negative = better; * = interval excludes 0).</p>
+    <div class="tablewrap"><table><thead><tr><th>Approach</th><th>Accuracy</th><th>Log loss</th><th>vs line</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p>No. Feeding the line to the model, or blending it with the stats, does not beat the line in a statistically meaningful way (blend: ${sgn(M.vs_market.blend.mean)} [${sgn(M.vs_market.blend.lo)}, ${sgn(M.vs_market.blend.hi)}]). The learned blend puts about ${(M.blend_weights_last_year.stats / M.blend_weights_last_year.market * 100).toFixed(0)}% as much weight on the stats as on the line. The only reliable gain is sharpening the line itself, and that is not our model. Betting the value rule with the line-aware model: ${M.value_rule.market_aware.n} bets, ROI ${ci(M.value_rule.market_aware, (x) => (x * 100).toFixed(1) + "%")}, which is indistinguishable from zero.</p>`;
 }
 
 function renderMarket() {
