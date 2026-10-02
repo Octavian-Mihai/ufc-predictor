@@ -45,6 +45,9 @@ FEATURE_COLS = [
     "d_kd_p15",
     "d_ground_pm",
     "d_southpaw",
+    "d_elo",
+    "d_opp_elo_avg",
+    "d_streak",
     "stance_mismatch",
 ]
 
@@ -76,6 +79,9 @@ CAREER_COLS = [
     "southpaw",
     "switch",
     "stance",
+    "elo",
+    "opp_elo_avg",
+    "streak",
 ]
 
 _OF_RE = re.compile(r"(-?\d+)\s+of\s+(-?\d+)", re.I)
@@ -328,9 +334,70 @@ def build_fighter_fight_table() -> pd.DataFrame:
     return joined
 
 
+ELO_BASE = 1500.0
+
+
+def compute_elo(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Sequential Elo over all bouts in date order.
+
+    Returns (pre_fight, final):
+      pre_fight — indexed like ``df``: ``elo``, ``opp_elo_avg`` (mean rating of past
+                  opponents, i.e. schedule strength) and ``streak`` (signed win/loss
+                  streak), all known *before* the bout (no leakage);
+      final     — per fighter, the same three values after their last bout.
+    Newer fighters move faster (higher K) and finishes count slightly more.
+    """
+    d = df[["date", "event", "bout", "fighter", "won", "finish_win"]].copy()
+    pos = {idx: i for i, idx in enumerate(df.index)}
+    n_rows = len(df)
+    out = {k: np.full(n_rows, np.nan) for k in ("elo", "opp_elo_avg", "streak")}
+
+    rating: dict[str, float] = {}
+    n_seen: dict[str, int] = {}
+    streak: dict[str, float] = {}
+    opp_sum: dict[str, float] = {}
+
+    def snapshot(f: str) -> tuple[float, float, float]:
+        n = n_seen.get(f, 0)
+        avg = opp_sum.get(f, 0.0) / n if n else np.nan
+        return rating.get(f, ELO_BASE), avg, streak.get(f, 0.0)
+
+    for _, grp in d.groupby(["date", "event", "bout"], sort=True):
+        rows = list(grp.itertuples())
+        for r in rows:
+            elo, avg, stk = snapshot(r.fighter)
+            i = pos[r.Index]
+            out["elo"][i], out["opp_elo_avg"][i], out["streak"][i] = elo, avg, stk
+        if len(rows) != 2 or rows[0].fighter == rows[1].fighter:
+            continue
+        a, b = rows
+        ra, rb = rating.get(a.fighter, ELO_BASE), rating.get(b.fighter, ELO_BASE)
+        decisive = pd.notna(a.won) and pd.notna(b.won) and a.won != b.won
+        for f, opp_r in ((a.fighter, rb), (b.fighter, ra)):
+            opp_sum[f] = opp_sum.get(f, 0.0) + opp_r
+            n_seen[f] = n_seen.get(f, 0) + 1
+        if not decisive:
+            continue
+        exp_a = 1.0 / (1.0 + 10 ** ((rb - ra) / 400.0))
+        finish = 1.2 if (a.finish_win or b.finish_win) else 1.0
+        for f, row, exp in ((a.fighter, a, exp_a), (b.fighter, b, 1.0 - exp_a)):
+            k = (20.0 + 40.0 / (1.0 + (n_seen[f] - 1) / 2.0)) * finish
+            rating[f] = rating.get(f, ELO_BASE) + k * (float(row.won) - exp)
+            streak[f] = max(streak.get(f, 0.0), 0.0) + 1 if row.won == 1 else min(streak.get(f, 0.0), 0.0) - 1
+
+    pre = pd.DataFrame(out, index=df.index)
+    final = pd.DataFrame(
+        [(f, *snapshot(f)) for f in n_seen],
+        columns=["fighter", "elo", "opp_elo_avg", "streak"],
+    )
+    return pre, final
+
+
 def add_prior_career(df: pd.DataFrame) -> pd.DataFrame:
     """Expanding career stats using only prior bouts (no leakage)."""
+    elo_pre, _ = compute_elo(df)
     g = df.sort_values(["fighter", "date", "event", "bout"]).copy()
+    g = g.join(elo_pre)
     g["prior_fights"] = g.groupby("fighter").cumcount()
     g["days_since"] = g.groupby("fighter")["date"].diff().dt.days
 
@@ -481,6 +548,8 @@ def inclusive_career(df: pd.DataFrame) -> pd.DataFrame:
     latest["days_since"] = (pd.Timestamp.now().normalize() - latest["last_date"]).dt.days
     # Age as of today for upcoming cards.
     latest["age"] = (pd.Timestamp.now().normalize() - latest["dob"]).dt.days / 365.25
+    _, elo_final = compute_elo(df)
+    latest = latest.merge(elo_final, on="fighter", how="left")
     return latest
 
 
@@ -512,6 +581,9 @@ def diffs_from_sides(red: pd.DataFrame, blue: pd.DataFrame) -> pd.DataFrame:
         "kd_p15",
         "ground_pm",
         "southpaw",
+        "elo",
+        "opp_elo_avg",
+        "streak",
     ]
     for col in paired:
         if col in red.columns:

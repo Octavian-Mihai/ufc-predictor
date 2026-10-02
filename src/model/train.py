@@ -1,4 +1,4 @@
-"""Train a calibrated HistGradientBoosting win model on chronological holdout."""
+"""Train a calibrated, corner-symmetric stacked ensemble on a chronological holdout."""
 
 from __future__ import annotations
 
@@ -11,16 +11,24 @@ from datetime import datetime, timezone
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.calibration import CalibratedClassifierCV
+from scipy.stats import loguniform, randint
 from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.frozen import FrozenEstimator
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import accuracy_score, brier_score_loss, log_loss
+from sklearn.model_selection import RandomizedSearchCV, TimeSeriesSplit
 
 from src.features.build import FEATURE_COLS, TRAINING_PATH, build_features
-from src.paths import METRICS_PATH, MODEL_PATH, ensure_dirs
+from src.model.ensemble import (
+    PlattCalibrated,
+    StackedEnsemble,
+    SymmetricClassifier,
+    make_base_models,
+)
+from src.paths import METRICS_PATH, MODEL_PATH, MODELS_DIR, ensure_dirs
 
 TRAIN_END = pd.Timestamp("2022-12-31")
 CALIB_END = pd.Timestamp("2023-12-31")
+HGB_PARAMS_PATH = MODELS_DIR / "hgb_params.json"
 
 
 def _metrics(y_true, proba) -> dict[str, float]:
@@ -43,10 +51,42 @@ def load_training(rebuild: bool = False) -> pd.DataFrame:
     return df
 
 
-def train_model(rebuild: bool = False) -> dict:
+def tune_hgb(X: pd.DataFrame, y: pd.Series, n_iter: int = 25) -> dict:
+    """Randomized search over HGB params, scored by log loss on expanding time splits."""
+    search = RandomizedSearchCV(
+        HistGradientBoostingClassifier(early_stopping=False, random_state=42),
+        {
+            "max_depth": randint(2, 7),
+            "learning_rate": loguniform(0.01, 0.15),
+            "max_iter": randint(80, 400),
+            "min_samples_leaf": randint(20, 120),
+            "l2_regularization": loguniform(0.1, 20),
+        },
+        n_iter=n_iter,
+        scoring="neg_log_loss",
+        cv=TimeSeriesSplit(n_splits=4),
+        random_state=42,
+        n_jobs=-1,
+    )
+    search.fit(X, y)
+    best = {k: (float(v) if isinstance(v, (float, np.floating)) else int(v)) for k, v in search.best_params_.items()}
+    print(f"tuned HGB (cv log loss {-search.best_score_:.4f}): {best}")
+    HGB_PARAMS_PATH.write_text(json.dumps(best, indent=2))
+    return best
+
+
+def _load_hgb_params() -> dict | None:
+    return json.loads(HGB_PARAMS_PATH.read_text()) if HGB_PARAMS_PATH.exists() else None
+
+
+def train_model(rebuild: bool = False, tune: bool = False) -> dict:
     ensure_dirs()
-    df = load_training(rebuild=rebuild)
-    df = df.dropna(subset=["y", "date"]).copy()
+    df = (
+        load_training(rebuild=rebuild)
+        .dropna(subset=["y", "date"])
+        .sort_values("date", kind="stable")
+        .reset_index(drop=True)
+    )
     X = df[FEATURE_COLS]
     y = df["y"].astype(int)
 
@@ -59,55 +99,55 @@ def train_model(rebuild: bool = False) -> dict:
     if n_fit < 200 or n_test < 50:
         raise RuntimeError("Not enough chronological fights to train/evaluate.")
 
-    hgb = HistGradientBoostingClassifier(
-        max_depth=5,
-        learning_rate=0.06,
-        max_iter=250,
-        min_samples_leaf=40,
-        l2_regularization=0.8,
-        random_state=42,
-        early_stopping=False,
-    )
-    hgb.fit(X.loc[fit_mask], y.loc[fit_mask])
+    hgb_params = tune_hgb(X.loc[fit_mask], y.loc[fit_mask]) if tune else _load_hgb_params()
 
-    method = "sigmoid"
-    calibrated = CalibratedClassifierCV(FrozenEstimator(hgb), method=method, ensemble=False)
+    # --- evaluation fit: train ≤2022, calibrate 2023, score 2024+ --------------------
+    print("fitting stacked ensemble (time-ordered out-of-fold meta-learning)")
+    stack = StackedEnsemble(make_base_models(hgb_params)).fit(X.loc[fit_mask], y.loc[fit_mask])
+    print(f"  meta weights (logit scale): {stack.weights_}")
+
+    calibrated = PlattCalibrated(stack)
     if n_calib >= 50:
         calibrated.fit(X.loc[calib_mask], y.loc[calib_mask])
-        print(f"calibrated with {method} on {n_calib:,} fights (2023)")
+        print(f"calibrated with Platt scaling on {n_calib:,} fights (2023)")
     else:
         calibrated.fit(X.loc[fit_mask], y.loc[fit_mask])
         print("calibration slice small; fitted calibrator on train")
 
-    holdout_proba = calibrated.predict_proba(X.loc[test_mask])[:, 1]
-    holdout_y = y.loc[test_mask].to_numpy()
-    metrics = _metrics(holdout_y, holdout_proba)
+    X_test, y_test = X.loc[test_mask], y.loc[test_mask].to_numpy()
+    metrics = _metrics(y_test, calibrated.predict_proba(X_test)[:, 1])
 
-    train_all_mask = df["date"] <= CALIB_END
-    print("refitting on all data through 2023 for live predictions")
-    hgb_live = HistGradientBoostingClassifier(
-        max_depth=5,
-        learning_rate=0.06,
-        max_iter=250,
-        min_samples_leaf=40,
-        l2_regularization=0.8,
-        random_state=42,
-        early_stopping=False,
+    # Per-model comparison on the same holdout (base models are uncalibrated).
+    comparison = {"ensemble (calibrated)": metrics}
+    base_test = stack.base_proba(X_test)
+    for name in base_test:
+        comparison[name] = _metrics(y_test, base_test[name].to_numpy())
+    elo_only = SymmetricClassifier(make_base_models()["logreg"]).fit(X.loc[fit_mask, ["d_elo"]], y.loc[fit_mask])
+    comparison["elo only"] = _metrics(y_test, elo_only.predict_proba(X_test[["d_elo"]])[:, 1])
+    comparison["coin flip"] = _metrics(y_test, np.full(len(y_test), 0.5))
+
+    imp = permutation_importance(
+        calibrated, X_test, y_test, scoring="neg_log_loss", n_repeats=8, random_state=42, n_jobs=1
     )
-    hgb_live.fit(X.loc[train_all_mask], y.loc[train_all_mask])
-    live = CalibratedClassifierCV(FrozenEstimator(hgb_live), method=method, ensemble=False)
-    live.fit(
-        X.loc[test_mask] if n_test >= 80 else X.loc[train_all_mask],
-        y.loc[test_mask] if n_test >= 80 else y.loc[train_all_mask],
+    importance = (
+        pd.Series(imp.importances_mean, index=FEATURE_COLS).sort_values(ascending=False).head(15).round(5).to_dict()
     )
 
-    # Keep the holdout-evaluated model as the reported one; persist the live model
-    # but store holdout metrics from the frozen chronological pipeline.
+    # --- live fit: ensemble on every fight, reuse the 2023-fitted Platt calibrator ---
+    print("refitting ensemble on all data for live predictions")
+    live = PlattCalibrated(StackedEnsemble(make_base_models(hgb_params)).fit(X, y))
+    live.platt_ = calibrated.platt_
+    live.classes_ = calibrated.classes_
+
     bundle = {
         "model": live,
         "eval_model": calibrated,
         "feature_cols": FEATURE_COLS,
         "metrics": metrics,
+        "comparison": comparison,
+        "importance": importance,
+        "ensemble_weights": stack.weights_,
+        "hgb_params": hgb_params,
         "split": {
             "fit_through": str(TRAIN_END.date()),
             "calib_through": str(CALIB_END.date()),
@@ -119,14 +159,17 @@ def train_model(rebuild: bool = False) -> dict:
         "trained_at": datetime.now(timezone.utc).isoformat(),
     }
     joblib.dump(bundle, MODEL_PATH)
-    METRICS_PATH.write_text(json.dumps({"metrics": metrics, "split": bundle["split"], "trained_at": bundle["trained_at"]}, indent=2))
+    keys = ("metrics", "comparison", "importance", "ensemble_weights", "hgb_params", "split", "trained_at")
+    METRICS_PATH.write_text(json.dumps({k: bundle[k] for k in keys}, indent=2))
 
     print("\nHoldout (2024–now)")
-    print(f"  fights     {metrics['n']:,}")
-    print(f"  accuracy   {metrics['accuracy']:.3f}")
-    print(f"  brier      {metrics['brier']:.3f}")
-    print(f"  log loss   {metrics['log_loss']:.3f}")
-    print(f"  mean pred  {metrics['mean_pred']:.3f}  (base rate {metrics['base_rate']:.3f})")
+    print(f"  {'model':<24}{'acc':>7}{'brier':>8}{'logloss':>9}{'mean_p':>8}")
+    for name, m in comparison.items():
+        print(f"  {name:<24}{m['accuracy']:>7.3f}{m['brier']:>8.3f}{m['log_loss']:>9.3f}{m['mean_pred']:>8.3f}")
+    print(f"  (holdout base rate {metrics['base_rate']:.3f}, n={metrics['n']:,})")
+    print("\nTop features (permutation importance, Δ log loss)")
+    for name, val in importance.items():
+        print(f"  {name:<22}{val:>9.5f}")
     print(f"saved {MODEL_PATH}")
     return bundle
 
@@ -136,8 +179,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Train UFC win model")
     parser.add_argument("--rebuild", action="store_true", help="Rebuild features first")
+    parser.add_argument("--tune", action="store_true", help="Tune HistGradientBoosting on time-series CV first")
     args = parser.parse_args()
-    train_model(rebuild=args.rebuild)
+    train_model(rebuild=args.rebuild, tune=args.tune)
 
 
 if __name__ == "__main__":

@@ -255,6 +255,16 @@ def main() -> None:
         except FileNotFoundError:
             st.warning("Train the model first: `python -m src.model.train`")
             return
+        comparison = meta.get("comparison")
+        if comparison:
+            with st.expander("Model comparison (holdout)"):
+                table = pd.DataFrame(comparison).T[["accuracy", "log_loss", "brier"]]
+                st.dataframe(table.style.format("{:.3f}"), use_container_width=True)
+                st.caption("Ensemble = stacked HGB + logistic regression + extra trees + neural net, Platt-calibrated.")
+                imp = meta.get("importance") or {}
+                if imp:
+                    st.markdown("**Top features** (permutation importance)")
+                    st.bar_chart(pd.Series(imp).sort_values())
         st.divider()
         with st.expander("UFC Stats field mapping"):
             st.markdown(

@@ -1,6 +1,6 @@
 # Local UFC Fight Predictor
 
-Fully local Python app: official [UFC Stats](http://ufcstats.com/) career features, a calibrated scikit-learn win model, optional free [The Odds API](https://the-odds-api.com/) moneylines, and a Streamlit dashboard that ranks **value underdogs**.
+Fully local Python app: official [UFC Stats](http://ufcstats.com/) career features, a calibrated scikit-learn **stacked ensemble** win model, optional free [The Odds API](https://the-odds-api.com/) moneylines, and a Streamlit dashboard that ranks **value underdogs**.
 
 No OpenAI, no cloud GPU, no paid hosting. The only optional account is a **free** Odds API key (500 credits/month). One cached `regions=us&markets=h2h` pull costs **1 credit**.
 
@@ -59,7 +59,16 @@ Retrain when you want updated weights:
 python -m src.model.train
 ```
 
-Holdout protocol: train through 2022, calibrate on 2023, evaluate 2024–now (accuracy, Brier, log loss).
+Holdout protocol: train through 2022, calibrate on 2023, evaluate 2024–now (accuracy, Brier, log loss). `python -m src.model.train --tune` additionally runs a time-series-CV randomized search over the gradient-boosting hyperparameters.
+
+## Machine learning
+
+- **Elo ratings** (`compute_elo`): sequential, leak-free, with faster updates for newer fighters and a bonus for finishes. Also feeds *strength of schedule* (mean past-opponent Elo) and win/loss *streak* features.
+- **Corner-symmetric training**: every fight is also seen with corners swapped (differentials negated, label flipped), and predictions average both orientations — so P(A beats B) + P(B beats A) = 1 exactly and there is no red-corner bias.
+- **Stacked ensemble**: HistGradientBoosting, logistic regression, extra trees and a small MLP, blended by a logistic meta-learner trained only on time-ordered out-of-fold predictions.
+- **Platt calibration** on 2023, then a per-model comparison and permutation feature importance on the 2024+ holdout (saved to `models/metrics.json`, shown in the dashboard sidebar).
+
+Holdout (1,413 fights): ensemble ≈ 64.6% accuracy / 0.634 log loss, vs 61.7% / 0.666 for the previous single gradient-boosting model.
 
 ## Layout
 
@@ -68,7 +77,8 @@ src/ingest/ufcstats.py   seed CSVs + incremental scrape
 src/ingest/odds.py       The Odds API, 24h SQLite cache, dummy JSON
 src/ingest/refresh.py    before-card refresh
 src/features/build.py    leak-free career features
-src/model/train.py       HistGradientBoostingClassifier + calibration
+src/model/ensemble.py    symmetric stacked ensemble + Platt calibration
+src/model/train.py       training, holdout comparison, feature importance
 src/model/predict.py     upcoming matchup → P(win)
 src/value/ev.py          de-vig, EV, underdog filter
 app.py                   Streamlit dashboard
