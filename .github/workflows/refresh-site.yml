@@ -22,6 +22,14 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Check ODDS_API_KEY is configured
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: |
+          if [ -z "$ODDS_API_KEY" ]; then
+            echo "::error::ODDS_API_KEY repository secret is not set (Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
       - run: pip install -r requirements.txt
       - name: Fetch data, rebuild features, retrain, export
         env:

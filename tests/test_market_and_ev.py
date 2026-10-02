@@ -51,3 +51,13 @@ def test_betting_sim_only_backs_underdogs_with_edge():
     m = pd.DataFrame({"y": [0, 0, 1], "red_decimal": [1.4, 1.4, 1.4], "blue_decimal": [3.0, 3.0, 3.0], "model": [0.5, 0.5, 0.9]})
     r = betting_sim(m, "model", threshold=0.05)  # blue EV = 0.5*2 - 0.5 = 0.5 on rows 1-2; row 3 has no edge on blue
     assert r["n"] == 2 and np.isclose(r["mean"], 2.0)  # blue won twice at +2 profit each
+
+
+def test_synthetic_odds_are_refused():
+    from src.ingest.odds import require_real_odds
+
+    for src in ("dummy", "dummy-card"):
+        with pytest.raises(RuntimeError):
+            require_real_odds({"source": src, "events": []})
+    for src in ("api", "cache", "stale-cache"):
+        assert require_real_odds({"source": src})["source"] == src

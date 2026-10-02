@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.features.build import CAREER_COLS
-from src.ingest.odds import get_odds
+from src.ingest.odds import get_odds, require_real_odds
 from src.ledger import summarize_ledger
 from src.model.backtest import BACKTEST_PATH
 from src.model.market import MARKET_PATH
@@ -58,9 +58,7 @@ def _load(path) -> dict | None:
 
 
 def build_payload() -> dict:
-    odds = get_odds()
-    if str(odds["source"]).startswith("dummy"):
-        raise RuntimeError("Refusing to export synthetic odds; set ODDS_API_KEY or fix the odds fetch.")
+    odds = require_real_odds(get_odds())
     scored = score_card(odds)
     bouts = []
     for rec in scored.to_dict("records"):

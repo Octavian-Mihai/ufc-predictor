@@ -235,6 +235,13 @@ def get_odds(force_refresh: bool = False) -> dict[str, Any]:
     return result
 
 
+def require_real_odds(result: dict[str, Any]) -> dict[str, Any]:
+    """Raise if the odds are synthetic, so fake lines never reach the ledger or the public site."""
+    if str(result.get("source", "")).startswith("dummy"):
+        raise RuntimeError("Refusing to use synthetic odds; set ODDS_API_KEY or fix the odds fetch.")
+    return result
+
+
 def flatten_h2h(events: list[dict[str, Any]]) -> pd.DataFrame:
     """Median decimal moneyline per fighter across US books."""
     rows: list[dict[str, Any]] = []

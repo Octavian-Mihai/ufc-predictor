@@ -147,13 +147,13 @@ def summarize_ledger(threshold: float = EV_THRESHOLD) -> dict:
 
 
 def main() -> None:
-    from src.ingest.odds import get_odds
+    from src.ingest.odds import get_odds, require_real_odds
     from src.paths import METRICS_PATH
     from src.value.card import score_card
 
     trained_at = json.loads(METRICS_PATH.read_text()).get("trained_at") if METRICS_PATH.exists() else None
     print(f"graded {grade_ledger()} new result(s)")
-    print("logged", log_predictions(score_card(get_odds()), trained_at))
+    print("logged", log_predictions(score_card(require_real_odds(get_odds())), trained_at))
     s = summarize_ledger()
     print(f"ledger: {s['n_logged']} bouts, {s['n_graded']} graded, {s['n_pending']} pending")
     if s.get("model"):
