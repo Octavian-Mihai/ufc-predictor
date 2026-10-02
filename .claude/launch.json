@@ -4,8 +4,23 @@
     {
       "name": "streamlit",
       "runtimeExecutable": ".venv/bin/streamlit",
-      "runtimeArgs": ["run", "app.py"],
+      "runtimeArgs": [
+        "run",
+        "app.py"
+      ],
       "port": 8501
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8765",
+        "--directory",
+        "site"
+      ],
+      "port": 8765
     }
   ]
 }

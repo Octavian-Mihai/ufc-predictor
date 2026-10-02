@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UFC Fight Predictor</title>
+<meta name="description" content="Stacked ML ensemble win probabilities for upcoming UFC cards, compared with market odds.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text y=%27.9em%27 font-size=%2790%27>🥊</text></svg>">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14171c;--mute:#5d6672;--line:#e1e5ea;--accent:#d7263d;--good:#1a8f4c;--bad:#c0392b;--bar:#d7263d;--bar2:#2b6cb0;--warn:#fff4e0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1216;--card:#181c22;--ink:#e8ebef;--mute:#9aa4b0;--line:#2a313a;--good:#43c07a;--bad:#ef6b5d;--warn:#2b2417}}
+:root[data-theme="dark"]{--bg:#0f1216;--card:#181c22;--ink:#e8ebef;--mute:#9aa4b0;--line:#2a313a;--good:#43c07a;--bad:#ef6b5d;--warn:#2b2417}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
+h1{margin:0 0 4px;font-size:1.7rem}h2{font-size:1.15rem;margin:28px 0 10px}h3{margin:0 0 6px;font-size:1.05rem}
+.sub{color:var(--mute);margin:0 0 16px}
+.note{background:var(--warn);border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:.88rem;color:var(--mute);margin-bottom:18px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.tabs button{background:none;border:0;color:var(--mute);font:inherit;padding:10px 14px;cursor:pointer;border-bottom:2px solid transparent}
+.tabs button[aria-selected=true]{color:var(--ink);border-color:var(--accent);font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:16px;align-items:end;margin-bottom:14px}
+label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;color:var(--mute)}
+select,input[type=range]{font:inherit;color:var(--ink)}
+select{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:240px;max-width:100%}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{padding:9px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mute);font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.03em}
+tr:last-child td{border-bottom:0}
+tbody tr.sel{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+tbody tr{cursor:pointer}
+.pos{color:var(--good)}.neg{color:var(--bad)}.mute{color:var(--mute)}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:.75rem;font-weight:600;background:var(--good);color:#fff}
+.pill.gray{background:var(--mute)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.big{font-size:2rem;font-weight:700;line-height:1.1}
+.stat{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:10px;align-items:center;padding:5px 0;font-size:.85rem}
+.stat .lbl{text-align:center;color:var(--mute);font-size:.78rem}
+.stat .v{font-variant-numeric:tabular-nums}.stat .v:first-child{text-align:right}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%}
+.grp{margin:14px 0 2px;font-weight:600}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.kpi b{display:block;font-size:1.4rem}.kpi span{color:var(--mute);font-size:.8rem}
+details{margin-top:10px}summary{cursor:pointer;color:var(--mute)}
+footer{margin-top:40px;color:var(--mute);font-size:.82rem}
+.hidden{display:none}
+@media (max-width:640px){.two{grid-template-columns:1fr}.big{font-size:1.7rem}select{min-width:0;width:100%}label{width:100%}}
+</style>
+</head>
+<body>
+<main>
+  <h1>🥊 UFC Fight Predictor</h1>
+  <p class="sub">UFC Stats career features · stacked ML ensemble · market odds from The Odds API</p>
+  <div class="note">Entertainment / analysis tool, not betting advice. Fight outcomes are uncertain; a good UFC stats model lands in the mid-60s% on winner accuracy. This is an edge finder, not a lock machine.</div>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="upcoming">Upcoming card</button>
+    <button role="tab" aria-selected="false" data-tab="recap">Last 5 events</button>
+    <button role="tab" aria-selected="false" data-tab="model">Model</button>
+  </div>
+
+  <div class="row">
+    <label>Value EV threshold: <b id="thrVal">5%</b>
+      <input id="thr" type="range" min="0" max="20" value="5" step="1">
+    </label>
+    <span class="mute" id="stamp"></span>
+  </div>
+
+  <section id="upcoming">
+    <div class="row"><label>Card<select id="eventSel"></select></label></div>
+    <p class="sub" id="eventMeta"></p>
+    <div class="tablewrap"><table id="boutTable"></table></div>
+    <h2>Value underdogs</h2><div id="values"></div>
+    <h2>Matchup details</h2><div id="detail"></div>
+  </section>
+
+  <section id="recap" class="hidden"></section>
+  <section id="model" class="hidden"></section>
+
+  <footer>Refreshed by a scheduled job; see <code>site/data.json</code> for the raw numbers. Odds are the median across US books and may move before the fight.</footer>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = (x, d = 1) => (x == null ? "—" : (x * 100).toFixed(d) + "%");
+const ev = (x) => (x == null ? "—" : `<span class="${x >= 0 ? "pos" : "neg"}">${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%</span>`);
+const dec = (x) => (x == null ? "—" : Number(x).toFixed(2));
+const num = (x, d = 2) => (x == null ? "—" : Number(x).toFixed(d));
+const stampOf = (d) => new Date(d).toLocaleString(undefined, {dateStyle: "medium", timeStyle: "short"});
+
+let DATA, thr = 0.05, selBout = 0;
+
+const STAT_GROUPS = [
+  ["Takedowns", [["td_landed_p15", "TD landed / 15 min"], ["td_acc", "TD accuracy"], ["td_def", "TD defense"]]],
+  ["Kicks (leg significant strikes)", [["leg_pm", "Leg strikes landed / min"]]],
+  ["Distance striking (jab / boxing proxy)", [["dist_pm", "Distance strikes / min"], ["dist_acc", "Distance accuracy"]]],
+  ["Under pressure", [["sapm", "Strikes absorbed / min", true], ["str_def", "Strike defense"], ["ctrl_against_p15", "Control against / 15 min", true]]],
+  ["Attacking", [["slpm", "Sig. strikes landed / min"], ["ctrl_for_p15", "Control for / 15 min"], ["kd_p15", "Knockdowns / 15 min"], ["ground_pm", "Ground strikes / min"]]],
+  ["Rating", [["elo", "Elo rating"], ["opp_elo_avg", "Avg opponent Elo"], ["streak", "Win streak"]]],
+];
+
+const isValue = (b, side) => {
+  if (b.status !== "ok") return false;
+  const e = b[side + "_ev"];
+  return b[side + "_underdog"] && e != null && e >= thr;
+};
+
+function eventsList() {
+  const seen = new Map();
+  DATA.bouts.forEach((b) => { if (!seen.has(b.EVENT)) seen.set(b.EVENT, Date.parse(b.DATE) || 0); });
+  return [...seen.entries()].sort((a, b) => a[1] - b[1]).map((e) => e[0]);
+}
+
+function renderUpcoming() {
+  const ev_ = $("#eventSel").value;
+  const bouts = DATA.bouts.filter((b) => b.EVENT === ev_);
+  if (selBout >= bouts.length) selBout = 0;
+  const first = bouts[0] || {};
+  $("#eventMeta").textContent = `${first.DATE || ""} · ${first.LOCATION || ""} · odds source: ${first.odds_source || "n/a"}`;
+
+  const head = ["Bout", "Model P(A)", "Model P(B)", "A odds", "B odds", "Market P(A)", "A edge", "A EV", "B EV", "Flag"];
+  const rows = bouts.map((b, i) => {
+    const ok = b.status === "ok";
+    const v = isValue(b, "a") ? b.fighter_a : isValue(b, "b") ? b.fighter_b : "";
+    const flag = v ? `<span class="pill">VALUE ${esc(v)}</span>` : !ok ? `<span class="pill gray">insufficient data</span>` : "";
+    return `<tr data-i="${i}" class="${i === selBout ? "sel" : ""}"><td>${esc(b.fighter_a)} vs ${esc(b.fighter_b)}</td>
+      <td>${ok ? pct(b.p_a) : "—"}</td><td>${ok ? pct(b.p_b) : "—"}</td><td>${dec(b.a_decimal)}</td><td>${dec(b.b_decimal)}</td>
+      <td>${pct(b.a_fair)}</td><td>${ok ? ev(b.a_edge) : "—"}</td><td>${ok ? ev(b.a_ev) : "—"}</td><td>${ok ? ev(b.b_ev) : "—"}</td><td>${flag}</td></tr>`;
+  });
+  $("#boutTable").innerHTML = `<thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody>`;
+  $("#boutTable tbody").onclick = (e) => {
+    const tr = e.target.closest("tr"); if (!tr) return;
+    selBout = +tr.dataset.i; renderUpcoming();
+  };
+
+  const vals = [];
+  bouts.forEach((b) => ["a", "b"].forEach((s) => {
+    if (isValue(b, s)) vals.push({name: b["fighter_" + s], opp: b["fighter_" + (s === "a" ? "b" : "a")], p: b["p_" + s], odds: b[s + "_decimal"], ev: b[s + "_ev"]});
+  }));
+  $("#values").innerHTML = vals.length
+    ? `<div class="tablewrap"><table><thead><tr><th>Underdog</th><th>Opponent</th><th>Model P</th><th>Odds</th><th>EV</th></tr></thead><tbody>${vals.map((v) =>
+        `<tr><td>${esc(v.name)}</td><td>${esc(v.opp)}</td><td>${pct(v.p)}</td><td>${dec(v.odds)}</td><td>${ev(v.ev)}</td></tr>`).join("")}</tbody></table></div>`
+    : `<p class="mute">No underdogs clear the ${Math.round(thr * 100)}% EV threshold on this card. Lower it, or wait for lines to post.</p>`;
+
+  renderDetail(bouts[selBout]);
+}
+
+function side(b, s) {
+  const ok = b.status === "ok";
+  const tag = isValue(b, s) ? `<span class="pill">Value underdog</span>` : b[s + "_underdog"] ? `<span class="mute">Moneyline underdog (below threshold)</span>` : "";
+  return `<div class="card"><h3>${esc(b["fighter_" + s])}</h3>
+    <div class="big">${ok ? pct(b["p_" + s]) : "—"}</div><div class="mute">${ok ? "model win probability" : "insufficient data"}</div>
+    <p>Market ${dec(b[s + "_decimal"])} · fair ${pct(b[s + "_fair"])}<br>Edge ${ok ? ev(b[s + "_edge"]) : "—"} · EV ${ok ? ev(b[s + "_ev"]) : "—"}</p>${tag}</div>`;
+}
+
+function statRow(label, a, b, invert) {
+  const both = a != null && b != null;
+  const tot = both ? Math.abs(a) + Math.abs(b) : 0;
+  const aw = tot ? (Math.abs(a) / tot) * 100 : 50;
+  const aBetter = both && a !== b && (invert ? a < b : a > b);
+  const bBetter = both && a !== b && !aBetter;
+  return `<div class="stat"><div class="v">${num(a)}</div><div><div class="lbl">${label}</div>
+    <div class="bar"><i style="width:${aw}%;background:${aBetter ? "var(--bar)" : bBetter ? "var(--bar2)" : "var(--mute)"}"></i></div></div><div class="v">${num(b)}</div></div>`;
+}
+
+function renderDetail(b) {
+  if (!b) { $("#detail").innerHTML = ""; return; }
+  const A = b.a_stats || {}, B = b.b_stats || {};
+  const kp = (l, x, y) => `<div class="card kpi"><span>${l}</span><b>${x} vs ${y}</b></div>`;
+  let html = `<div class="two">${side(b, "a")}${side(b, "b")}</div>
+    <div class="kpis" style="margin:12px 0">${kp("Age", num(A.age, 1), num(B.age, 1))}${kp("Reach (in)", num(A.reach, 0), num(B.reach, 0))}
+    ${kp("Last 3 win rate", pct(A.last3, 0), pct(B.last3, 0))}${kp("UFC fights", A.prior_fights ?? "—", B.prior_fights ?? "—")}</div>
+    <p class="mute">Career averages from official UFC Stats. Red bar = advantage to ${esc(b.fighter_a)}, blue = ${esc(b.fighter_b)}. Distance striking is the jab proxy.</p>`;
+  STAT_GROUPS.forEach(([title, items]) => {
+    html += `<div class="grp">${title}</div>` + items.map(([k, l, inv]) => statRow(l, A[k], B[k], inv)).join("");
+  });
+  $("#detail").innerHTML = html;
+}
+
+function renderRecap() {
+  let flags = 0, settled = 0, hits = 0, graded = 0, correct = 0;
+  const blocks = DATA.recap.map((e) => {
+    const rows = e.fights.map((f) => {
+      const dog = f.a_underdog ? "a" : f.b_underdog ? "b" : null;
+      const dEv = dog ? f[dog + "_ev"] : null;
+      const flagged = f.status === "ok" && dog && dEv != null && dEv >= thr;
+      let outcome = "—";
+      if (f.grade === "correct") { graded++; correct++; outcome = `<span class="pos">Correct</span>`; }
+      else if (f.grade === "wrong") { graded++; outcome = `<span class="neg">Wrong</span>`; }
+      else outcome = `<span class="mute">${esc(f.grade === "insufficient_data" ? "insufficient data" : f.grade || "excluded")}</span>`;
+      let vcell = "";
+      if (flagged) {
+        flags++;
+        const won = f.winner && f.winner === f["fighter_" + dog];
+        if (f.winner) { settled++; if (won) hits++; vcell = won ? `<span class="pill">VALUE hit</span>` : `<span class="pill" style="background:var(--bad)">VALUE miss</span>`; }
+        else vcell = `<span class="pill gray">VALUE</span>`;
+      }
+      return `<tr><td>${esc(f.fighter_a)} vs ${esc(f.fighter_b)}</td><td>${f.status === "ok" ? esc(f.pick) + " " + pct(Math.max(f.p_a, f.p_b), 0) : "—"}</td><td>${esc(f.winner || "—")}</td><td>${outcome}</td><td>${vcell}</td></tr>`;
+    }).join("");
+    return `<h2>${esc(e.event)}</h2><p class="sub">${esc(e.date)} · ${esc(e.location)}</p>
+      <div class="tablewrap"><table><thead><tr><th>Bout</th><th>Model pick</th><th>Winner</th><th>Result</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }).join("");
+  $("#recap").innerHTML = `<div class="note">Heads up: the live model is trained on all past fights, including these, so this recap is an in-sample sanity check, not a forecast. Honest out-of-sample numbers are on the Model tab.</div>
+    <div class="kpis"><div class="card kpi"><span>Graded picks</span><b>${graded}</b></div>
+    <div class="card kpi"><span>Winner accuracy</span><b>${graded ? pct(correct / graded) : "—"}</b></div>
+    <div class="card kpi"><span>Value flags</span><b>${flags}</b></div>
+    <div class="card kpi"><span>Value hit rate</span><b>${settled ? pct(hits / settled, 0) : "—"}</b></div></div>` + blocks;
+}
+
+function renderModel() {
+  const m = DATA.model || {}, h = m.metrics || {}, split = m.split || {};
+  const cmp = m.comparison || {}, imp = m.importance || {};
+  const maxImp = Math.max(...Object.values(imp), 1e-9);
+  $("#model").innerHTML = `<div class="kpis">
+    <div class="card kpi"><span>Holdout accuracy</span><b>${pct(h.accuracy)}</b></div>
+    <div class="card kpi"><span>Log loss</span><b>${num(h.log_loss, 3)}</b></div>
+    <div class="card kpi"><span>Brier</span><b>${num(h.brier, 3)}</b></div>
+    <div class="card kpi"><span>Holdout fights</span><b>${(h.n ?? 0).toLocaleString()}</b></div></div>
+    <p class="mute">Trained through ${esc(split.fit_through)}, calibrated on ${esc(split.calib_through)}, scored on fights from ${esc(split.holdout_from)}.</p>
+    <h2>Model comparison (holdout)</h2>
+    <div class="tablewrap"><table><thead><tr><th>Model</th><th>Accuracy</th><th>Log loss</th><th>Brier</th></tr></thead><tbody>
+    ${Object.entries(cmp).map(([k, v]) => `<tr><td>${esc(k)}</td><td>${pct(v.accuracy)}</td><td>${num(v.log_loss, 3)}</td><td>${num(v.brier, 3)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="mute">Ensemble = stacked gradient boosting + logistic regression + extra trees + neural net, trained on corner-swapped data and Platt-calibrated. Lower log loss / Brier is better; a coin flip scores 0.693 / 0.250.</p>
+    <h2>Top features (permutation importance)</h2>
+    <div class="card">${Object.entries(imp).map(([k, v]) => `<div class="stat"><div class="v" style="text-align:right">${esc(k)}</div><div class="bar"><i style="width:${(v / maxImp) * 100}%;background:var(--bar)"></i></div><div class="v">${num(v, 4)}</div></div>`).join("")}</div>`;
+}
+
+function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === name));
+  ["upcoming", "recap", "model"].forEach((id) => $("#" + id).classList.toggle("hidden", id !== name));
+  $(".row:has(#thr)").classList.toggle("hidden", name === "model");
+}
+
+function rerender() { renderUpcoming(); renderRecap(); }
+
+fetch("data.json", {cache: "no-cache"}).then((r) => r.json()).then((d) => {
+  DATA = d;
+  $("#stamp").textContent = `Updated ${stampOf(d.generated_at)} · odds: ${d.odds_source}`;
+  const names = eventsList();
+  $("#eventSel").innerHTML = names.map((n) => `<option>${esc(n)}</option>`).join("");
+  $("#eventSel").onchange = () => { selBout = 0; renderUpcoming(); };
+  $("#thr").oninput = (e) => { thr = e.target.value / 100; $("#thrVal").textContent = e.target.value + "%"; rerender(); };
+  document.querySelectorAll(".tabs button").forEach((b) => (b.onclick = () => showTab(b.dataset.tab)));
+  renderModel(); rerender();
+}).catch((e) => { $("#upcoming").innerHTML = `<p class="neg">Could not load data.json (${esc(e.message)}).</p>`; });
+</script>
+</body>
+</html>

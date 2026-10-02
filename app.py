@@ -14,6 +14,7 @@ from src.ingest.odds import flatten_h2h, get_odds, match_fight_odds
 from src.model.predict import load_bundle, load_card, load_latest, predict_fight
 from src.paths import FIGHT_LEVEL_PATH, FIGHTER_LATEST_PATH, METRICS_PATH, MODEL_PATH, UPCOMING_PATH
 from src.review.recent import grade_last_events, recap_to_records, rethreshold_recap
+from src.value.card import score_card
 from src.value.ev import american_to_decimal, annotate_model, coerce_decimal, is_underdog, pair_market
 
 st.set_page_config(page_title="UFC Fight Predictor", page_icon="🥊", layout="wide")
@@ -137,50 +138,8 @@ def _bundle_and_latest(stamp: tuple):
 
 @st.cache_data(ttl=300, show_spinner=True)
 def _scored_card(stamp: tuple) -> pd.DataFrame:
-    card = load_card()
-    if card.empty:
-        return pd.DataFrame()
     bundle, latest = _bundle_and_latest(stamp)
-    odds = _odds_payload()
-    flat = flatten_h2h(odds["events"])
-    sample = bool(card["sample_card"].iloc[0]) if "sample_card" in card.columns else False
-    rows = []
-    for rec in card.to_dict("records"):
-        a = rec.get("FIGHTER_A")
-        b = rec.get("FIGHTER_B")
-        pred = predict_fight(
-            a,
-            b,
-            bundle=bundle,
-            latest=latest,
-            event=rec.get("EVENT"),
-            bout=rec.get("BOUT"),
-            as_of_prior=sample,
-        )
-        odds_hit = match_fight_odds(a, b, flat) or {}
-        a_dec = _hit_decimal(odds_hit, "a")
-        b_dec = _hit_decimal(odds_hit, "b")
-        market = None
-        if a_dec is not None and b_dec is not None:
-            market = annotate_model(pair_market(a_dec, b_dec), pred.get("p_a"))
-        rows.append(
-            {
-                **rec,
-                **pred,
-                "odds_source": odds["source"],
-                "a_decimal": a_dec,
-                "b_decimal": b_dec,
-                "a_fair": market.get("a_fair") if market else None,
-                "b_fair": market.get("b_fair") if market else None,
-                "a_ev": market.get("a_ev") if market else None,
-                "b_ev": market.get("b_ev") if market else None,
-                "a_edge": market.get("a_edge") if market else None,
-                "b_edge": market.get("b_edge") if market else None,
-                "a_underdog": is_underdog(a_dec, b_dec) if a_dec is not None else False,
-                "b_underdog": is_underdog(b_dec, a_dec) if b_dec is not None else False,
-            }
-        )
-    return pd.DataFrame(rows)
+    return score_card(_odds_payload(), bundle=bundle, latest=latest)
 
 
 @st.cache_data(show_spinner=True)

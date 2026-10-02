@@ -125,6 +125,16 @@ Example: model 42% on a +180 dog → decimal 2.80 → EV ≈ +17.6%.
 
 Name matching between UFC Stats and books uses `rapidfuzz` (e.g. Zhang Weili vs Weili Zhang).
 
+## Deploy to Vercel
+
+The Streamlit app needs a long-running server, so Vercel hosts a **static** site instead (`site/`) and no Python runs there:
+
+- `python -m src.export.site` scores the card and writes `site/data.json` (bouts, odds, EV, recap, model metrics).
+- `site/index.html` is the dashboard; it reads `data.json` and recomputes value flags in the browser as you move the EV slider.
+- `.github/workflows/refresh-site.yml` runs the refresh → train → export pipeline daily and commits `site/data.json`; Vercel redeploys on that push.
+
+Setup: import the repo in Vercel (`vercel.json` sets the output directory; no build step), and add an `ODDS_API_KEY` repository secret for the Action (one Odds API credit per run). Preview locally with `python3 -m http.server --directory site`.
+
 ## Out of scope
 
 - No ChatGPT/Claude at prediction time

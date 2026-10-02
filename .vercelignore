@@ -1,0 +1,8 @@
+.venv
+data
+models
+src
+docs
+.github
+.streamlit
+__pycache__
