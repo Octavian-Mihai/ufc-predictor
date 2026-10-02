@@ -1,12 +1,37 @@
 # Local UFC Fight Predictor
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for an architecture diagram.
-
 Fully local Python app: official [UFC Stats](http://ufcstats.com/) career features, a calibrated scikit-learn **stacked ensemble** win model, optional free [The Odds API](https://the-odds-api.com/) moneylines, and a Streamlit dashboard that ranks **value underdogs**.
 
 No OpenAI, no cloud GPU, no paid hosting. The only optional account is a **free** Odds API key (500 credits/month). One cached `regions=us&markets=h2h` pull costs **1 credit**.
 
 This is an **entertainment / analysis** tool, **not betting advice**. Fight outcomes are uncertain. A well-built UFC stats model typically lands around the mid-60s% on winner accuracy — an edge finder, not a lock machine.
+
+
+## Architecture
+
+```mermaid
+flowchart LR
+    UFC[(ufcstats.com)] --> Ing1[ingest/ufcstats.py]
+    Odds[(The Odds API<br/>optional, cached)] --> Ing2[ingest/odds.py]
+    Ref[ingest/refresh.py] -.orchestrates.-> Ing1
+    Ing1 --> Raw[(data/raw)]
+    Raw --> Feat[features/build.py] --> Proc[(data/processed)]
+    Proc --> Train[model/train.py]
+    Train --> Ens[model/ensemble.py<br/>calibrated stacked ensemble]
+    Ens --> Models[(models/ + metrics)]
+
+    Models --> Pred[model/predict.py]
+    Proc --> Pred
+    Pred --> EV[value/ev.py<br/>edge + EV, value underdogs]
+    Ing2 --> EV
+    Pred --> Rev[review/recent.py<br/>grade last events]
+
+    EV --> App[["app.py — Streamlit dashboard"]]
+    Rev --> App
+    Models --> App
+```
+
+More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## Screenshots
 
