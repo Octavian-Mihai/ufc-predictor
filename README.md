@@ -117,17 +117,37 @@ The suite targets the places where a leak would silently inflate results: Elo an
 
 ## Layout
 
-```
-src/ingest/ufcstats.py   seed CSVs + incremental scrape
-src/ingest/odds.py       The Odds API, 24h SQLite cache, dummy JSON
-src/ingest/refresh.py    before-card refresh
-src/features/build.py    leak-free career features
-src/model/ensemble.py    symmetric stacked ensemble + Platt calibration
-src/model/train.py       training, holdout comparison, feature importance
-src/model/predict.py     upcoming matchup → P(win)
-src/value/ev.py          de-vig, EV, underdog filter
-app.py                   Streamlit dashboard
-```
+| Path | Purpose |
+|---|---|
+| `app.py` | Streamlit dashboard |
+| `src/ingest/ufcstats.py` | Seed CSVs plus incremental scrape of new event pages |
+| `src/ingest/odds.py` | The Odds API client with a 24 h SQLite cache and dummy JSON |
+| `src/ingest/refresh.py` | Before-card refresh that orchestrates ingestion |
+| `src/features/build.py` | Leak-free career features (Elo and career stats use only earlier fights) |
+| `src/model/ensemble.py` | Symmetric stacked ensemble with Platt calibration |
+| `src/model/train.py` | Training, holdout comparison, feature importance |
+| `src/model/predict.py` | Upcoming matchup → P(win) |
+| `src/value/ev.py` | De-vig, expected value, underdog filter |
+| `src/review/` | Grades recent events against predictions |
+| `src/ledger.py` | Prediction ledger that freezes at event day |
+| `src/export/`, `site/` | Static export for the Vercel site (`site/index.html`, `data.json`) |
+| `src/names.py`, `src/paths.py` | Fighter-name normalisation and path constants |
+| `data/`, `models/` | Raw and processed data; trained models and metrics |
+| `tests/` | Leakage, symmetry, stacking and ledger tests |
+| `docs/` | Architecture notes and screenshots |
+
+## Design patterns
+
+- **Staged pipeline with files between stages.** Ingest → raw → features → processed → train → models → predict, so each stage
+  can be rerun and inspected on its own.
+- **Leakage guarded by construction and by test.** Features only see earlier fights, the meta-learner only sees out-of-fold rows,
+  and tests assert both, including a truncation test on real data.
+- **Symmetry by design.** Corner-mirroring is exactly antisymmetric, so red/blue assignment cannot bias a prediction.
+- **Stacked ensemble with calibration.** Base models feed a meta-learner and a Platt step so output probabilities are usable for
+  EV maths.
+- **Cache in front of a metered API.** Odds calls are cached for 24 h with a dummy-JSON fallback.
+- **Append-only ledger.** Predictions freeze on event day so the track record cannot be rewritten.
+- **Static export.** The deployed site is plain files built from the same predictions as the dashboard.
 
 Seed fight history comes from the maintained [Greco1899/scrape_ufc_stats](https://github.com/Greco1899/scrape_ufc_stats) CSVs, then new event pages are scraped incrementally from UFC Stats.
 
